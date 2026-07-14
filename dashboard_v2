@@ -1,0 +1,19 @@
+dashboard_v2/
+│
+├── index.html
+├── css/
+│   ├── style.css
+│   └── dashboard.css
+│
+└── js/
+    ├── firebase.js
+    ├── auth.js
+    ├── master.js
+    ├── transaction.js
+    ├── portfolio.js
+    ├── ledger.js
+    ├── reports.js
+    ├── liveprice.js
+    ├── backup.js
+    ├── utils.js
+    └── app.js
