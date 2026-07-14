@@ -1,19 +1,971 @@
-dashboard_v2/
-│
-├── index.html
-├── css/
-│   ├── style.css
-│   └── dashboard.css
-│
-└── js/
-    ├── firebase.js
-    ├── auth.js
-    ├── master.js
-    ├── transaction.js
-    ├── portfolio.js
-    ├── ledger.js
-    ├── reports.js
-    ├── liveprice.js
-    ├── backup.js
-    ├── utils.js
-    └── app.js
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Equity & MF Dashboard (Secure)</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #f4f6f9; --card-bg: #ffffff; --text-color: #333333;
+            --primary: #2563eb; --success: #16a34a; --danger: #dc2626;
+            --warning: #f59e0b; --info: #0ea5e9; --purple: #8b5cf6; --border: #e5e7eb;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        /* --- SECURE AUTHENTICATION OVERLAY --- */
+        #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-color); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+        .auth-box { background: var(--card-bg); padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: center; border-top: 5px solid var(--primary); }
+        .auth-box h2 { margin-top: 0; color: var(--text-color); margin-bottom: 20px;}
+        .auth-box input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
+        .auth-buttons { display: flex; gap: 10px; margin-bottom: 15px; }
+        .auth-buttons button { flex: 1; }
+        .btn-google { background: #ea4335; color: white; width: 100%; border: none; padding: 10px; font-size: 1rem; font-weight: 600; border-radius: 4px; cursor: pointer; transition: 0.2s; }
+        .btn-google:hover { background: #c5221f; }
+        
+        .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 15px;}
+        .user-controls { display: flex; align-items: center; gap: 15px; background: #e2e8f0; padding: 8px 15px; border-radius: 8px; font-weight: 500; font-size: 0.95rem; }
+        .btn-logout { background: #64748b; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: bold; }
+        .btn-logout:hover { background: #475569; }
+
+        h1 { margin: 0; font-weight: 700; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 1.5rem;}
+        .header-actions { display: flex; gap: 10px; }
+        .btn-backup { background: var(--purple); color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: bold; }
+        .btn-restore { background: #475569; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: bold; }
+        
+        .summary-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .card { background: var(--card-bg); padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 5px solid var(--primary); }
+        .card.equity { border-left-color: var(--primary); }
+        .card.mf { border-left-color: var(--warning); }
+        .card.cash { border-left-color: var(--success); }
+        .card.pnl { border-left-color: var(--purple); } 
+        .card h3 { margin: 0 0 10px 0; font-size: 0.85rem; text-transform: uppercase; color: #666; }
+        .card p { margin: 0; font-size: 1.5rem; font-weight: bold; }
+        
+        .main-grid { display: grid; grid-template-columns: 1fr; gap: 25px; margin-bottom: 25px; align-items: start; }
+        @media(min-width: 900px) { .main-grid { grid-template-columns: 350px 1fr; } }
+        .reports-grid { display: grid; grid-template-columns: 1fr; gap: 25px; }
+        @media(min-width: 900px) { .reports-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); } }
+        
+        .panel { background: var(--card-bg); padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 25px; }
+        .panel h2 { margin-top: 0; font-size: 1.2rem; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        
+        .panel-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; user-select: none; transition: color 0.2s; }
+        .panel-header:hover { color: var(--primary); }
+        .panel-header h2 { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+        
+        .table-header-toggle { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 15px; transition: color 0.2s; }
+        .collapsible-table-content { display: none; }
+        .collapsible-table-content.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        .tx-form-container { display: none; }
+        .tx-form-container.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
+        .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
+        select[multiple] { height: 90px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; outline: none; }
+        
+        button.btn-primary { width: 100%; background: var(--primary); color: white; border: none; padding: 10px; font-size: 1rem; font-weight: 600; border-radius: 4px; cursor: pointer; transition: 0.2s; }
+        button.btn-primary:hover { background: #1d4ed8; }
+        button.btn-secondary { width: 100%; background: #64748b; color: white; border: none; padding: 10px; font-size: 1rem; font-weight: 600; border-radius: 4px; cursor: pointer; }
+        
+        .controls-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; margin-bottom: 15px; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }
+        .controls-row .form-group { margin-bottom: 0; flex: 1; min-width: 150px; }
+        button.btn-export { background: var(--success); color: white; border: none; padding: 9px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: fit-content; }
+        button.btn-live { background: var(--info); color: white; border: none; padding: 9px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: fit-content; }
+        button.btn-live:hover { background: #0284c7; }
+        
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+        th, td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { background-color: #f8fafc; font-weight: 600; white-space: nowrap; }
+        
+        th.sortable { cursor: pointer; transition: background 0.2s; user-select: none; }
+        th.sortable:hover { background-color: #e2e8f0; }
+        .sort-icon { font-size: 0.8rem; margin-left: 5px; color: var(--primary); }
+        .col-filter { width: 100%; padding: 4px; font-size: 0.8rem; font-weight: normal; margin-top: 6px; border: 1px solid #cbd5e1; border-radius: 3px; box-sizing: border-box; }
+
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+        .badge.purchase { background: #dcfce7; color: #15803d; }
+        .badge.sale { background: #dbeafe; color: #1d4ed8; }
+        .badge.expense { background: #fef3c7; color: #b45309; }
+        .badge.income { background: #e0e7ff; color: #4338ca; }
+        .badge.cash-addition { background: #d1fae5; color: #065f46; }
+        .badge.cash-withdrawal { background: #fee2e2; color: #991b1b; }
+        
+        .btn-edit-tx { background: none; border: none; color: var(--primary); cursor: pointer; font-weight: 500; margin-right: 8px; }
+        .btn-delete { background: none; border: none; color: var(--danger); cursor: pointer; font-weight: 500; }
+        .pnl-positive { color: var(--success); font-weight: bold; }
+        .pnl-negative { color: var(--danger); font-weight: bold; }
+        .pnl-neutral { color: var(--text-color); font-weight: bold; }
+
+        .pagination-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); }
+        .pagination-controls button { padding: 8px 16px; border: 1px solid var(--border); background: var(--card-bg); cursor: pointer; border-radius: 4px; font-weight: 600; transition: background 0.2s; }
+        .pagination-controls button:hover:not(:disabled) { background: #e2e8f0; }
+        .pagination-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #page-indicator { font-weight: 500; color: #64748b; font-size: 0.95rem; }
+
+        .tree-container { font-size: 0.9rem; background: #fff; }
+        .tree-node { margin-bottom: 4px; }
+        .tree-header { display: flex; justify-content: space-between; padding: 8px 12px; background: #f8fafc; cursor: pointer; border-radius: 4px; user-select: none; transition: all 0.2s; border: 1px solid #e2e8f0;}
+        .tree-header:hover { background: #e2e8f0; border-color: #cbd5e1; }
+        .tree-header span:first-child { font-weight: 600; display: flex; align-items: center;}
+        .tree-arrow { display: inline-block; width: 16px; font-size: 0.75rem; transition: transform 0.2s; color: #64748b; }
+        .tree-node.active > .tree-header .tree-arrow { transform: rotate(90deg); color: var(--primary); }
+        .tree-children { display: none; padding-left: 20px; border-left: 2px solid #e2e8f0; margin-left: 7px; margin-top: 4px; padding-bottom: 4px;}
+        .tree-node.active > .tree-children { display: block; animation: fadeIn 0.3s ease-in-out; }
+        .tree-leaf { display: flex; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--border); margin-left: 10px; background: #fafafa;}
+        .tree-leaf:last-child { border-bottom: none; }
+        .tree-leaf span:first-child { font-weight: 500; color: #475569; }
+    </style>
+</head>
+<body>
+
+<div id="auth-overlay">
+    <div class="auth-box">
+        <h2>Dashboard Login</h2>
+        <button id="btn-google-login" class="btn-google" onclick="signInWithGoogle()">Sign in with Google</button>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border);">
+        <input type="email" id="auth-email" placeholder="Email Address">
+        <input type="password" id="auth-password" placeholder="Password">
+        <div class="auth-buttons">
+            <button class="btn-primary" onclick="signInWithEmail()">Log In</button>
+            <button class="btn-secondary" onclick="signUpWithEmail()">Sign Up</button>
+        </div>
+        <p id="auth-error" style="color: var(--danger); font-size: 0.85rem; margin: 0; display: none;"></p>
+    </div>
+</div>
+
+<div class="container" id="app-container" style="display: none;">
+    <div class="header-top">
+        <h1>Personal Accounting Dashboard</h1>
+        <div class="user-controls">
+            <span id="display-user-email">user@example.com</span>
+            <button class="btn-logout" onclick="signOut()">Log Out</button>
+        </div>
+        <div class="header-actions">
+            <button class="btn-backup" onclick="backupData()">💾 Backup to JSON</button>
+            <button class="btn-restore" onclick="document.getElementById('import-file').click()">📂 Restore JSON</button>
+            <input type="file" id="import-file" style="display:none" accept=".json" onchange="restoreData(event)">
+        </div>
+    </div>
+
+    <div class="summary-container">
+        <div class="card equity"><h3>Equity Investment</h3><p id="equity-investment">0.00</p></div>
+        <div class="card mf"><h3>MF Investment</h3><p id="mf-investment">0.00</p></div>
+        <div class="card cash"><h3>Total Cash Balance</h3><p id="cash-balance">0.00</p></div>
+        <div class="card pnl"><h3>Realized P&L (Net)</h3><p id="realized-pnl">0.00</p></div>
+    </div>
+
+    <div class="main-grid">
+        <div class="panel" style="margin-bottom: 0; padding-top: 10px;">
+            <div class="panel-header" onclick="toggleLogTx()">
+                <h2>Log Transaction</h2>
+                <span id="log-tx-icon">▼</span>
+            </div>
+            <div id="log-tx-content" class="tx-form-container active">
+                <form id="tx-form">
+                    <input type="hidden" id="tx-id">
+                    <div class="form-group"><label>Date</label><input type="date" id="date" required></div>
+                    <div class="form-group"><label>Broker / Platform</label><input type="text" id="broker-input" list="broker-list" required style="text-transform: capitalize;"><datalist id="broker-list"></datalist></div>
+                    <div class="form-group"><label>Asset Class</label><select id="asset-class" required><option value="Equity">Equity</option><option value="Mutual Fund">Mutual Fund</option></select></div>
+                    <div class="form-group">
+                        <label>Transaction Type</label>
+                        <select id="tx-type" required onchange="handleTxTypeChange()">
+                            <option value="Purchase">Purchase</option>
+                            <option value="Sale">Sale</option>
+                            <option value="Income">Income</option>
+                            <option value="Expense">Expense</option>
+                            <option value="Cash Addition">Cash Addition</option>
+                            <option value="Cash Withdrawal">Cash Withdrawal</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Symbol / Name</label><input type="text" id="symbol-input" list="symbol-list" required style="text-transform: uppercase;"><datalist id="symbol-list"></datalist></div>
+                    <div class="form-group"><label>Remark (Optional)</label><input type="text" id="remark-input" list="remark-list" placeholder="e.g. Dividend, Bonus, SIP"><datalist id="remark-list"></datalist></div>
+                    <div class="form-group"><label>Quantity / Units</label><input type="number" id="qty" step="any" min="0" value="0" required></div>
+                    <div class="form-group"><label>Price / NAV / Amount</label><input type="number" id="price" step="any" min="0" value="0" required></div>
+                    <button type="submit" id="submit-btn" class="btn-primary">Add Transaction</button>
+                    <button type="button" id="cancel-edit-btn" style="display:none; margin-top: 10px; background:#64748b;" class="btn-primary" onclick="cancelEdit()">Cancel Edit</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-bottom: 0; padding-top: 10px;">
+            <div class="panel-header" onclick="toggleScriptDash()">
+                <h2>Script Analysis Dashboard</h2>
+                <span id="script-dash-icon">▲</span>
+            </div>
+            <div id="script-dash-content" class="collapsible-table-content active">
+                <div class="controls-row">
+                    <div class="form-group">
+                        <label>Select Script(s) <small style="color: #64748b;">(Ctrl/Cmd + Click)</small></label>
+                        <select id="dash-script" multiple onchange="renderScriptDash()"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Select Year(s) <small style="color: #64748b;">(Ctrl/Cmd + Click)</small></label>
+                        <select id="dash-year" multiple onchange="renderScriptDash()"></select>
+                    </div>
+                </div>
+                <div id="script-dash-data" style="display: none;">
+                    <div class="reports-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div>
+                            <h3 style="font-size: 1rem; border-bottom: 2px solid var(--border); padding-bottom: 5px;">Current Holdings</h3>
+                            <div class="table-container">
+                                <table>
+                                    <thead><tr><th>Script</th><th>Broker</th><th>Qty</th><th>Avg Price</th><th>Invested</th></tr></thead>
+                                    <tbody id="dash-holdings-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 1rem; border-bottom: 2px solid var(--border); padding-bottom: 5px;">Month-wise P&L</h3>
+                            <div class="table-container">
+                                <table>
+                                    <thead><tr><th>Month</th><th>P&L</th></tr></thead>
+                                    <tbody id="dash-pnl-body"></tbody>
+                                    <tfoot><tr><th style="background-color: var(--card-bg);">Total Realized</th><th id="dash-pnl-total" style="background-color: var(--card-bg);">0.00</th></tr></tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Script-wise Reports</h2>
+        <div class="controls-row">
+            <div class="form-group"><label>Filter By Broker:</label><select id="report-filter-broker" onchange="renderApp()"><option value="All">All Brokers</option></select></div>
+            <div class="form-group"><label>Filter By Asset Class:</label><select id="report-filter-asset" onchange="renderApp()"><option value="All">All Assets</option><option value="Equity">Equity</option><option value="Mutual Fund">Mutual Fund</option></select></div>
+            
+            <div class="form-group" style="min-width: 260px;">
+                <label>Live API Config (Finnhub/AlphaVantage or Proxy Key)</label>
+                <input type="password" id="live-api-key" placeholder="Optional Free API Key (Leaves empty for open tier)" style="padding: 7px; font-size: 0.85rem;">
+            </div>
+            <button class="btn-live" onclick="fetchLivePrices()">🔄 Fetch Live Prices</button>
+        </div>
+        
+        <div class="reports-grid">
+            <div class="table-container" style="grid-column: 1 / -1;">
+                <div class="table-header-toggle" onclick="toggleHoldings()">
+                    <h3>Current Holdings (Balance & Live Market Track)</h3><span id="holdings-icon">▲</span>
+                </div>
+                <div id="holdings-content" class="collapsible-table-content active">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Broker</th>
+                                <th>Class</th>
+                                <th>Qty</th>
+                                <th>Avg Price</th>
+                                <th>Invested Amt</th>
+                                <th style="background: #f0fdf4;">Live Price</th>
+                                <th style="background: #f0fdf4;">Current Value</th>
+                                <th style="background: #f0fdf4;">Unrealized P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="holdings-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="table-container"><h3>Investment by Broker</h3><table><thead><tr><th>Broker</th><th>Current Investment</th></tr></thead><tbody id="broker-investment-body"></tbody></table></div>
+            <div class="table-container"><h3>Broker Ledger (Cash) Balance</h3><table><thead><tr><th>Broker</th><th>Available Balance</th></tr></thead><tbody id="broker-ledger-body"></tbody></table></div>
+            
+            <div class="table-container" style="grid-column: 1 / -1; max-width: 600px;">
+                <h3>Hierarchical P&L (FY -> Month -> Day -> Script/Category)</h3>
+                <div id="hierarchical-pnl-body" class="tree-container"></div>
+            </div>
+
+            <div class="table-container"><h3>Realized P&L by Script</h3><table><thead><tr><th>Symbol</th><th>Broker</th><th>Class</th><th>Realized P&L</th></tr></thead><tbody id="pnl-body"></tbody></table></div>
+            <div class="table-container"><h3>Realized P&L by Broker</h3><table><thead><tr><th>Broker</th><th>Realized P&L</th></tr></thead><tbody id="broker-pnl-body"></tbody></table></div>
+        </div>
+    </div>
+
+    <div class="panel" style="padding-top: 10px;">
+        <div class="panel-header" onclick="toggleLedger()">
+            <h2>Raw Transaction Ledger</h2>
+            <span id="ledger-icon">▲</span>
+        </div>
+        <div id="ledger-content" class="collapsible-table-content active">
+            <div class="controls-row" style="background: #e0e7ff; border-color: #c7d2fe;">
+                <div class="form-group" style="flex: 2; min-width: 250px;">
+                    <label>Global Live Search</label>
+                    <input type="text" id="ledger-search" placeholder="Start typing to search globally..." oninput="resetPageAndRender()" style="border-color: #a5b4fc;">
+                </div>
+                <button class="btn-export" onclick="exportCSV()">Download CSV</button>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="sortable" onclick="setSort('date')">Date <span class="sort-icon" id="sort-date"></span><br><input type="text" id="flt-col-date" class="col-filter" placeholder="Filter..." onclick="event.stopPropagation()" oninput="resetPageAndRender()"></th>
+                            <th class="sortable" onclick="setSort('broker')">Broker <span class="sort-icon" id="sort-broker"></span><br><input type="text" id="flt-col-broker" class="col-filter" placeholder="Filter..." onclick="event.stopPropagation()" oninput="resetPageAndRender()"></th>
+                            <th class="sortable" onclick="setSort('assetClass')">Asset <span class="sort-icon" id="sort-assetClass"></span><br><input type="text" id="flt-col-asset" class="col-filter" placeholder="Filter..." onclick="event.stopPropagation()" oninput="resetPageAndRender()"></th>
+                            <th class="sortable" onclick="setSort('txType')">Type <span class="sort-icon" id="sort-txType"></span><br><input type="text" id="flt-col-type" class="col-filter" placeholder="Filter..." onclick="event.stopPropagation()" oninput="resetPageAndRender()"></th>
+                            <th class="sortable" onclick="setSort('symbol')">Symbol <span class="sort-icon" id="sort-symbol"></span><br><input type="text" id="flt-col-symbol" class="col-filter" placeholder="Filter..." onclick="event.stopPropagation()" oninput="resetPageAndRender()"></th>
+                            <th class="sortable" onclick="setSort('remark')">Remark <span class="sort-icon" id="sort-remark"></span><br><input type="text" id="flt-col-remark" class="col-filter" placeholder="Filter..." onclick="event.stopPropagation()" oninput="resetPageAndRender()"></th>
+                            <th class="sortable" onclick="setSort('qty')">Qty <span class="sort-icon" id="sort-qty"></span></th>
+                            <th class="sortable" onclick="setSort('price')">Price <span class="sort-icon" id="sort-price"></span></th>
+                            <th class="sortable" onclick="setSort('total')" style="min-width: 100px;">Total <span class="sort-icon" id="sort-total"></span><br><div id="flt-col-total-display" style="margin-top: 6px; padding: 4px; font-size: 0.85rem; font-weight: bold; color: var(--primary); background: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 3px; display: none; text-align: center;">0.00</div></th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ledger-body"></tbody>
+                </table>
+                <div class="pagination-controls">
+                    <button id="btn-prev" onclick="changePage(-1)">Previous</button>
+                    <span id="page-indicator">Page 1 of 1</span>
+                    <button id="btn-next" onclick="changePage(1)">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // Firebase Configuration
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyBgQ08BOvTb60ZpPM72733sQUcpgy9ujQY",
+      authDomain: "equitydashboard-47f8c.firebaseapp.com",
+      projectId: "equitydashboard-47f8c",
+      storageBucket: "equitydashboard-47f8c.firebasestorage.app",
+      messagingSenderId: "313210184210",
+      appId: "1:313210184210:web:0d2492eab6d8e3a5f0aecb",
+      measurementId: "G-7XHQXMX6PR"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    // --- STATE VARIABLES ---
+    let currentUser = null; 
+    let currentTxs = [];    
+    let livePrices = {}; // Global cache store for live prices keyed by Symbol
+    
+    let currentPage = 1;
+    const pageSize = 15;
+    let sortCol = 'date';
+    let sortDesc = true;
+
+    // --- SECURE AUTHENTICATION SYSTEM ---
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            currentUser = user;
+            document.getElementById('auth-overlay').style.display = 'none';
+            document.getElementById('app-container').style.display = 'block';
+            document.getElementById('display-user-email').innerText = user.email || "Logged in";
+            loadTransactions();
+        } else {
+            currentUser = null;
+            document.getElementById('app-container').style.display = 'none';
+            document.getElementById('auth-overlay').style.display = 'flex';
+        }
+    });
+
+    function showError(msg) {
+        const errEl = document.getElementById('auth-error');
+        errEl.innerText = msg;
+        errEl.style.display = 'block';
+    }
+
+    function signInWithGoogle() {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        auth.signInWithPopup(provider).catch(error => showError(error.message));
+    }
+
+    function signInWithEmail() {
+        const email = document.getElementById('auth-email').value;
+        const pwd = document.getElementById('auth-password').value;
+        if(!email || !pwd) return showError("Please enter email and password.");
+        auth.signInWithEmailAndPassword(email, pwd).catch(error => showError(error.message));
+    }
+
+    function signUpWithEmail() {
+        const email = document.getElementById('auth-email').value;
+        const pwd = document.getElementById('auth-password').value;
+        if(!email || !pwd) return showError("Please enter email and password.");
+        auth.createUserWithEmailAndPassword(email, pwd).catch(error => showError(error.message));
+    }
+
+    function signOut() { auth.signOut(); }
+
+    async function loadTransactions() {
+        if(!currentUser) return;
+        const snapshot = await db.collection('transactions').where("userId", "==", currentUser.uid).get();
+        currentTxs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderApp();
+    }
+
+    // --- LIVE MARKET DATA OVERLAY MODULE ---
+    async function fetchLivePrices() {
+        // Collect all unique non-CASH stock symbols currently held
+        let inventorySymbols = new Set();
+        currentTxs.forEach(tx => {
+            if (tx.symbol && tx.symbol !== 'CASH') {
+                inventorySymbols.add(tx.symbol.toUpperCase().trim());
+            }
+        });
+
+        const symbolsArray = Array.from(inventorySymbols);
+        if (symbolsArray.length === 0) {
+            alert("No symbols available to check live prices.");
+            return;
+        }
+
+        const apiKey = document.getElementById('live-api-key').value.trim();
+        alert(`Fetching real-time market snapshots for ${symbolsArray.length} items...`);
+
+        // Perform parallel async fetch targeting CORS-compliant endpoints
+        // Appends market flags dynamically (.NS) for standard India setups if suffix is missing
+        for (let sym of symbolsArray) {
+            let apiSymbol = sym;
+            if (!sym.includes('.')) {
+                apiSymbol = sym + ".NS"; // Map dynamically to NSE layout
+            }
+            
+            try {
+                // Configures clean endpoint access (e.g., standard free quote tracking)
+                let url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${apiSymbol}`;
+                // Optional failover to public endpoints if keys are dropped
+                if(apiKey) {
+                    url = `https://finnhub.io/api/v1/quote?symbol=${sym}&token=${apiKey}`;
+                }
+                
+                // Using standard open-cors client wrapper
+                const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+                if (res.ok) {
+                    const wrapData = await res.json();
+                    const data = JSON.parse(wrapData.contents);
+                    
+                    let price = 0;
+                    if (data.quoteResponse && data.quoteResponse.result && data.quoteResponse.result[0]) {
+                        price = data.quoteResponse.result[0].regularMarketPrice;
+                    } else if (data.c) {
+                        price = data.c; // Finnhub output key mapping
+                    }
+                    
+                    if (price > 0) {
+                        livePrices[sym] = price;
+                    }
+                }
+            } catch (err) {
+                console.warn(`Failed fetching real time value for: ${sym}`, err);
+            }
+        }
+        
+        // Re-render dashboard components with new loaded balances
+        renderApp();
+    }
+
+    // --- UI INTERACTIONS ---
+    function toggleLogTx(forceOpen = false) { const content = document.getElementById('log-tx-content'); const icon = document.getElementById('log-tx-icon'); if (forceOpen || !content.classList.contains('active')) { content.classList.add('active'); icon.innerText = '▲'; } else { content.classList.remove('active'); icon.innerText = '▼'; } }
+    function toggleScriptDash(forceOpen = false) { const content = document.getElementById('script-dash-content'); const icon = document.getElementById('script-dash-icon'); if (forceOpen || !content.classList.contains('active')) { content.classList.add('active'); icon.innerText = '▲'; } else { content.classList.remove('active'); icon.innerText = '▼'; } }
+    function toggleHoldings() { const content = document.getElementById('holdings-content'); const icon = document.getElementById('holdings-icon'); if (!content.classList.contains('active')) { content.classList.add('active'); icon.innerText = '▲'; } else { content.classList.remove('active'); icon.innerText = '▼'; } }
+    function toggleLedger(forceOpen = false) { const content = document.getElementById('ledger-content'); const icon = document.getElementById('ledger-icon'); if (forceOpen || !content.classList.contains('active')) { content.classList.add('active'); icon.innerText = '▲'; } else { content.classList.remove('active'); icon.innerText = '▼'; } }
+
+    function handleTxTypeChange() {
+        const type = document.getElementById('tx-type').value;
+        if (type === 'Cash Addition' || type === 'Cash Withdrawal') {
+            document.getElementById('symbol-input').value = 'CASH';
+            document.getElementById('qty').value = '0';
+        } else if (document.getElementById('symbol-input').value === 'CASH') {
+            document.getElementById('symbol-input').value = '';
+        }
+    }
+
+    document.getElementById('date').valueAsDate = new Date();
+
+    document.getElementById('tx-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const txId = document.getElementById('tx-id').value; 
+        const txType = document.getElementById('tx-type').value;
+        const qty = parseFloat(document.getElementById('qty').value);
+        const price = parseFloat(document.getElementById('price').value);
+        
+        let finalSymbol = document.getElementById('symbol-input').value.toUpperCase().trim();
+        let finalBroker = document.getElementById('broker-input').value.trim();
+        let finalRemark = document.getElementById('remark-input').value.trim(); 
+        const isFlatAmount = ['Expense', 'Income', 'Cash Addition', 'Cash Withdrawal'].includes(txType);
+
+        const txData = {
+            userId: currentUser.uid,
+            date: document.getElementById('date').value,
+            broker: finalBroker,
+            assetClass: document.getElementById('asset-class').value,
+            txType: txType,
+            symbol: finalSymbol,
+            remark: finalRemark,
+            qty: isFlatAmount ? 0 : qty,
+            price: price,
+            total: isFlatAmount ? price : (qty * price)
+        };
+
+        if (txId) {
+            await db.collection('transactions').doc(txId).update(txData);
+            cancelEdit();
+        } else {
+            await db.collection('transactions').add(txData);
+            document.getElementById('symbol-input').value = '';
+            document.getElementById('remark-input').value = '';
+            document.getElementById('qty').value = '0';
+            document.getElementById('price').value = '0';
+        }
+        await loadTransactions();
+    });
+
+    async function editTx(id) {
+        const docRef = await db.collection('transactions').doc(id).get();
+        if (!docRef.exists) return;
+        const tx = docRef.data();
+        document.getElementById('tx-id').value = id;
+        document.getElementById('date').value = tx.date;
+        document.getElementById('broker-input').value = tx.broker;
+        document.getElementById('asset-class').value = tx.assetClass;
+        document.getElementById('tx-type').value = tx.txType;
+        document.getElementById('symbol-input').value = tx.symbol;
+        document.getElementById('remark-input').value = tx.remark || '';
+        document.getElementById('qty').value = tx.qty;
+        document.getElementById('price').value = tx.price;
+        document.getElementById('submit-btn').innerText = 'Update Transaction';
+        document.getElementById('cancel-edit-btn').style.display = 'block';
+        toggleLogTx(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function cancelEdit() {
+        document.getElementById('tx-id').value = '';
+        document.getElementById('submit-btn').innerText = 'Add Transaction';
+        document.getElementById('cancel-edit-btn').style.display = 'none';
+        document.getElementById('tx-form').reset();
+        document.getElementById('date').valueAsDate = new Date();
+    }
+
+    async function deleteTx(id) {
+        if (confirm("Are you sure you want to delete this transaction?")) {
+            await db.collection('transactions').doc(id).delete();
+            if (document.getElementById('tx-id').value === id) cancelEdit();
+            await loadTransactions();
+        }
+    }
+
+    function exportCSV() {
+        if (currentTxs.length === 0) return alert("No data to export.");
+        let csvContent = "data:text/csv;charset=utf-8,";
+        const headers = ["ID", "Date", "Broker", "Asset Class", "Transaction Type", "Symbol", "Remark", "Quantity", "Price", "Total Amount"];
+        csvContent += headers.join(",") + "\n";
+        currentTxs.forEach(tx => {
+            csvContent += [tx.id, tx.date, `"${tx.broker}"`, `"${tx.assetClass}"`, `"${tx.txType}"`, `"${tx.symbol}"`, `"${tx.remark || ''}"`, tx.qty, tx.price, tx.total].join(",") + "\n";
+        });
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Export_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    async function backupData() {
+        if(!currentUser) return;
+        const txsSnap = await db.collection('transactions').where("userId", "==", currentUser.uid).get();
+        const backupPayload = { format: "firestore-export-secure", transactions: txsSnap.docs.map(d => ({id: d.id, ...d.data()})) };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupPayload));
+        const link = document.createElement("a");
+        link.setAttribute("href", dataStr);
+        link.setAttribute("download", `Cloud_Backup_${new Date().toISOString().split('T')[0]}.json`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function restoreData(event) {
+        const file = event.target.files[0];
+        if (!file || !currentUser) return;
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (data.transactions && confirm(`Proceeding will import ${data.transactions.length} transactions. Continue?`)) {
+                    for(let t of data.transactions) {
+                        delete t.id; t.userId = currentUser.uid; 
+                        await db.collection('transactions').add(t);
+                    }
+                    alert("Database restored securely!"); window.location.reload(); 
+                }
+            } catch (err) { alert("Invalid backup file."); }
+            event.target.value = ''; 
+        };
+        reader.readAsText(file);
+    }
+
+    function resetPageAndRender() { currentPage = 1; renderApp(); }
+    function changePage(dir) { currentPage += dir; renderApp(); }
+    function setSort(col) { if (sortCol === col) { sortDesc = !sortDesc; } else { sortCol = col; sortDesc = col === 'date' ? true : false; } resetPageAndRender(); }
+
+    function populateFilterDropdowns() {
+        const brokerReportFilter = document.getElementById('report-filter-broker');
+        const symbolDatalist = document.getElementById('symbol-list');
+        const brokerDatalist = document.getElementById('broker-list');
+        const remarkDatalist = document.getElementById('remark-list'); 
+        const dashScriptSelect = document.getElementById('dash-script');
+        const dashYearSelect = document.getElementById('dash-year');
+
+        const currentReportBroker = brokerReportFilter.value;
+        const currentDashScripts = Array.from(dashScriptSelect.selectedOptions).map(o => o.value);
+        const currentDashYears = Array.from(dashYearSelect.selectedOptions).map(o => o.value);
+
+        const uniqueSymbols = [...new Set(currentTxs.map(tx => tx.symbol))].sort();
+        const uniqueBrokers = [...new Set(currentTxs.map(tx => tx.broker || 'N/A'))].sort();
+        const uniqueRemarks = [...new Set(currentTxs.map(tx => tx.remark).filter(Boolean))].sort(); 
+        const uniqueYears = [...new Set(currentTxs.map(tx => tx.date.substring(0, 4)))].sort().reverse();
+
+        symbolDatalist.innerHTML = uniqueSymbols.map(s => `<option value="${s}">`).join('');
+        brokerDatalist.innerHTML = uniqueBrokers.filter(b => b!=='N/A').map(b => `<option value="${b}">`).join('');
+        remarkDatalist.innerHTML = uniqueRemarks.map(r => `<option value="${r}">`).join(''); 
+
+        brokerReportFilter.innerHTML = '<option value="All">All Brokers</option>' + uniqueBrokers.map(b => `<option value="${b}">${b}</option>`).join('');
+
+        dashScriptSelect.innerHTML = uniqueSymbols.filter(s => s !== "CASH").map(s => `<option value="${s}">${s}</option>`).join('');
+        dashYearSelect.innerHTML = uniqueYears.map(y => `<option value="${y}">${y}</option>`).join('');
+
+        if (currentReportBroker) brokerReportFilter.value = currentReportBroker;
+        Array.from(dashScriptSelect.options).forEach(opt => { if (currentDashScripts.includes(opt.value)) opt.selected = true; });
+        Array.from(dashYearSelect.options).forEach(opt => { if (currentDashYears.includes(opt.value)) opt.selected = true; });
+        if (!brokerReportFilter.value) brokerReportFilter.value = 'All';
+    }
+
+    function renderScriptDash() {
+        const dashScriptSelect = document.getElementById('dash-script');
+        const dashYearSelect = document.getElementById('dash-year');
+        const dataContainer = document.getElementById('script-dash-data');
+        
+        const selectedScripts = Array.from(dashScriptSelect.selectedOptions).map(o => o.value);
+        const selectedYears = Array.from(dashYearSelect.selectedOptions).map(o => o.value);
+
+        if (selectedScripts.length === 0) { dataContainer.style.display = 'none'; return; } 
+        else { dataContainer.style.display = 'block'; }
+
+        let inventory = {}; let monthlyPnL = {}; let totalPnL = 0;
+        let sortedTxs = [...currentTxs].sort((a,b) => new Date(a.date) - new Date(b.date));
+
+        sortedTxs.forEach(tx => {
+            if (!selectedScripts.includes(tx.symbol)) return;
+            let b = tx.broker || 'N/A'; let s = tx.symbol; let key = `${s}::${b}`;
+            let dateObj = new Date(tx.date); let year = tx.date.substring(0, 4);
+            let monthKey = `${year}-${(dateObj.getMonth()+1).toString().padStart(2, '0')}`;
+
+            if (!inventory[key]) inventory[key] = { symbol: s, broker: b, qty: 0, cost: 0 };
+            if (!monthlyPnL[monthKey]) monthlyPnL[monthKey] = 0;
+
+            if (tx.txType === 'Purchase') {
+                inventory[key].qty += tx.qty; inventory[key].cost += tx.total;
+            } else if (tx.txType === 'Sale') {
+                let avgCost = inventory[key].qty > 0 ? (inventory[key].cost / inventory[key].qty) : 0;
+                let cogs = avgCost * tx.qty;
+                let tradePnL = tx.total - cogs;
+                inventory[key].qty -= tx.qty; inventory[key].cost -= cogs;
+                monthlyPnL[monthKey] += tradePnL;
+            }
+        });
+
+        const holdingsBody = document.getElementById('dash-holdings-body');
+        holdingsBody.innerHTML = '';
+        Object.keys(inventory).sort().forEach(key => {
+            let item = inventory[key];
+            if (item.qty > 0.0001) { holdingsBody.innerHTML += `<tr><td><strong>${item.symbol}</strong></td><td>${item.broker}</td><td>${item.qty.toFixed(4)}</td><td>${(item.cost/item.qty).toFixed(2)}</td><td>${item.cost.toFixed(2)}</td></tr>`; }
+        });
+        if(holdingsBody.innerHTML === '') holdingsBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#666; padding: 15px;">No current holdings</td></tr>`;
+
+        const pnlBody = document.getElementById('dash-pnl-body');
+        pnlBody.innerHTML = '';
+        let keysToRender = Object.keys(monthlyPnL).sort().reverse();
+        if (selectedYears.length > 0) keysToRender = keysToRender.filter(m => selectedYears.includes(m.substring(0, 4)));
+
+        keysToRender.forEach(m => {
+            let p = monthlyPnL[m]; totalPnL += p;
+            if (p !== 0) { let c = p > 0 ? 'pnl-positive' : 'pnl-negative'; pnlBody.innerHTML += `<tr><td><strong>${m}</strong></td><td class="${c}">${p>0?'+':''}${p.toFixed(2)}</td></tr>`; }
+        });
+
+        const totalEl = document.getElementById('dash-pnl-total');
+        totalEl.innerText = (totalPnL > 0 ? '+' : '') + totalPnL.toFixed(2);
+        totalEl.className = totalPnL >= 0 ? 'pnl-positive' : 'pnl-negative';
+    }
+
+    function renderApp() {
+        populateFilterDropdowns();
+
+        const ledgerBody = document.getElementById('ledger-body'); const holdingsBody = document.getElementById('holdings-body'); const brokerInvestmentBody = document.getElementById('broker-investment-body'); const brokerLedgerBody = document.getElementById('broker-ledger-body'); const pnlBody = document.getElementById('pnl-body'); const brokerPnlBody = document.getElementById('broker-pnl-body');
+        ledgerBody.innerHTML = ''; holdingsBody.innerHTML = ''; brokerInvestmentBody.innerHTML = ''; brokerLedgerBody.innerHTML = ''; pnlBody.innerHTML = ''; brokerPnlBody.innerHTML = '';
+        
+        let totalEquity = 0; let totalMF = 0; let totalCash = 0;
+        let inventory = {}; let brokerPnLMap = {}; let brokerInvestmentMap = {}; let brokerLedgerMap = {}; let overallPnL = 0;
+        let hierarchicalPnL = {}; 
+        
+        function addHierarchical(dateStr, symbol, amount) {
+            let d = new Date(dateStr);
+            let year = d.getFullYear(); let month = d.getMonth() + 1; let day = d.getDate();
+            let fy = month >= 4 ? `${year}-${(year+1).toString().slice(2)}` : `${year-1}-${year.toString().slice(2)}`;
+            let monthStr = month.toString().padStart(2, '0');
+            let dayStr = day.toString().padStart(2, '0');
+
+            if (!hierarchicalPnL[fy]) hierarchicalPnL[fy] = { pnl: 0, months: {} };
+            if (!hierarchicalPnL[fy].months[monthStr]) hierarchicalPnL[fy].months[monthStr] = { pnl: 0, days: {} };
+            if (!hierarchicalPnL[fy].months[monthStr].days[dayStr]) hierarchicalPnL[fy].months[monthStr].days[dayStr] = { pnl: 0, scripts: {} };
+            if (!hierarchicalPnL[fy].months[monthStr].days[dayStr].scripts[symbol]) hierarchicalPnL[fy].months[monthStr].days[dayStr].scripts[symbol] = 0;
+
+            hierarchicalPnL[fy].pnl += amount;
+            hierarchicalPnL[fy].months[monthStr].pnl += amount;
+            hierarchicalPnL[fy].months[monthStr].days[dayStr].pnl += amount;
+            hierarchicalPnL[fy].months[monthStr].days[dayStr].scripts[symbol] += amount;
+        }
+        
+        let chronTxs = [...currentTxs].sort((a,b) => new Date(a.date) - new Date(b.date));
+
+        chronTxs.forEach(tx => {
+            let b = tx.broker || 'N/A'; let key = `${tx.symbol}::${b}`;
+            
+            if (!inventory[key]) inventory[key] = { symbol: tx.symbol, broker: b, qty: 0, cost: 0, type: tx.assetClass, pnl: 0 };
+            if (!brokerLedgerMap[b]) brokerLedgerMap[b] = 0;
+            
+            if (tx.txType === 'Purchase') { 
+                inventory[key].qty += tx.qty; inventory[key].cost += tx.total; brokerLedgerMap[b] -= tx.total; 
+            } 
+            else if (tx.txType === 'Sale') {
+                let avgCost = inventory[key].qty > 0 ? (inventory[key].cost / inventory[key].qty) : 0;
+                let cogs = avgCost * tx.qty; let tradePnL = tx.total - cogs; 
+                inventory[key].pnl += tradePnL; overallPnL += tradePnL; 
+                inventory[key].qty -= tx.qty; inventory[key].cost -= cogs; brokerLedgerMap[b] += tx.total; 
+                addHierarchical(tx.date, tx.symbol, tradePnL); 
+            } 
+            else if (tx.txType === 'Expense') { 
+                overallPnL -= tx.total; inventory[key].pnl -= tx.total; brokerLedgerMap[b] -= tx.total; 
+                addHierarchical(tx.date, tx.symbol, -tx.total); 
+            } 
+            else if (tx.txType === 'Income') { 
+                overallPnL += tx.total; inventory[key].pnl += tx.total; brokerLedgerMap[b] += tx.total; 
+                addHierarchical(tx.date, tx.symbol, tx.total); 
+            } 
+            else if (tx.txType === 'Cash Addition') { brokerLedgerMap[b] += tx.total; } 
+            else if (tx.txType === 'Cash Withdrawal') { brokerLedgerMap[b] -= tx.total; }
+        });
+
+        const rBroker = document.getElementById('report-filter-broker').value; 
+        const rAsset = document.getElementById('report-filter-asset').value;
+
+        Object.keys(inventory).sort().forEach(key => {
+            let item = inventory[key];
+            if (rAsset !== 'All' && item.type !== rAsset) return;
+            if (rBroker !== 'All' && item.broker !== rBroker) return;
+            if (!brokerPnLMap[item.broker]) brokerPnLMap[item.broker] = 0;
+            brokerPnLMap[item.broker] += item.pnl;
+
+            if (item.qty > 0.0001) { 
+                if (item.type === 'Equity') totalEquity += item.cost;
+                if (item.type === 'Mutual Fund') totalMF += item.cost;
+
+                if (!brokerInvestmentMap[item.broker]) brokerInvestmentMap[item.broker] = 0;
+                brokerInvestmentMap[item.broker] += item.cost;
+                
+                // Fetch cached real time prices if loaded
+                let livePrice = livePrices[item.symbol] || null;
+                let currentValStr = "-";
+                let unrealizedPnLStr = "-";
+                let pnlStyleClass = "pnl-neutral";
+                
+                if(livePrice) {
+                    let curValue = item.qty * livePrice;
+                    let unRealizedPnL = curValue - item.cost;
+                    currentValStr = curValue.toFixed(2);
+                    unrealizedPnLStr = (unRealizedPnL > 0 ? "+" : "") + unRealizedPnL.toFixed(2);
+                    pnlStyleClass = unRealizedPnL > 0 ? "pnl-positive" : (unRealizedPnL < 0 ? "pnl-negative" : "pnl-neutral");
+                }
+
+                holdingsBody.innerHTML += `<tr>
+                    <td><strong>${item.symbol}</strong></td>
+                    <td>${item.broker}</td>
+                    <td>${item.type}</td>
+                    <td>${item.qty.toFixed(4)}</td>
+                    <td>${(item.cost/item.qty).toFixed(2)}</td>
+                    <td>${item.cost.toFixed(2)}</td>
+                    <td style="background: #f0fdf4; font-weight:bold;">${livePrice ? livePrice.toFixed(2) : 'Click Fetch'}</td>
+                    <td style="background: #f0fdf4;">${currentValStr}</td>
+                    <td style="background: #f0fdf4;" class="${pnlStyleClass}">${unrealizedPnLStr}</td>
+                </tr>`;
+            }
+            if (item.pnl !== 0) { let c = item.pnl > 0 ? 'pnl-positive' : (item.pnl < 0 ? 'pnl-negative' : 'pnl-neutral'); pnlBody.innerHTML += `<tr><td><strong>${item.symbol}</strong></td><td>${item.broker}</td><td>${item.type}</td><td class="${c}">${item.pnl>0?'+':''}${item.pnl.toFixed(2)}</td></tr>`; }
+        });
+
+        Object.keys(brokerInvestmentMap).sort().forEach(b => brokerInvestmentBody.innerHTML += `<tr><td><strong>${b}</strong></td><td>${brokerInvestmentMap[b].toFixed(2)}</td></tr>`);
+        Object.keys(brokerLedgerMap).sort().forEach(b => { 
+            let bal = brokerLedgerMap[b]; totalCash += bal;
+            let c = bal > 0 ? 'pnl-positive' : (bal < 0 ? 'pnl-negative' : 'pnl-neutral'); 
+            brokerLedgerBody.innerHTML += `<tr><td><strong>${b}</strong></td><td class="${c}">${bal > 0 ? '+' : ''}${bal.toFixed(2)}</td></tr>`; 
+        });
+        Object.keys(brokerPnLMap).sort().forEach(b => { let p = brokerPnLMap[b]; if (p !== 0) brokerPnlBody.innerHTML += `<tr><td><strong>${b}</strong></td><td class="${p>0?'pnl-positive':'pnl-negative'}">${p>0?'+':''}${p.toFixed(2)}</td></tr>`; });
+
+        // --- RENDER HIERARCHICAL TREE HTML ---
+        let treeHtml = '';
+        const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+        Object.keys(hierarchicalPnL).sort().reverse().forEach(fy => {
+            let fyData = hierarchicalPnL[fy];
+            if (fyData.pnl === 0) return; 
+            let fyClass = fyData.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            
+            treeHtml += `<div class="tree-node">
+                <div class="tree-header" onclick="this.parentElement.classList.toggle('active')">
+                    <span><span class="tree-arrow">▶</span> FY ${fy}</span>
+                    <span class="${fyClass}">${fyData.pnl>0?'+':''}${fyData.pnl.toFixed(2)}</span>
+                </div>
+                <div class="tree-children">`;
+            
+            Object.keys(fyData.months).sort().reverse().forEach(mStr => {
+                let mData = fyData.months[mStr];
+                if (mData.pnl === 0) return;
+                let mClass = mData.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                
+                treeHtml += `<div class="tree-node">
+                    <div class="tree-header" onclick="this.parentElement.classList.toggle('active')">
+                        <span><span class="tree-arrow">▶</span> ${monthNames[parseInt(mStr)]}</span>
+                        <span class="${mClass}">${mData.pnl>0?'+':''}${mData.pnl.toFixed(2)}</span>
+                    </div>
+                    <div class="tree-children">`;
+                
+                Object.keys(mData.days).sort().reverse().forEach(dStr => {
+                    let dData = mData.days[dStr];
+                    if (dData.pnl === 0) return;
+                    let dClass = dData.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                    
+                    treeHtml += `<div class="tree-node">
+                        <div class="tree-header" onclick="this.parentElement.classList.toggle('active')">
+                            <span><span class="tree-arrow">▶</span> ${dStr} ${monthNames[parseInt(mStr)].slice(0,3)}</span>
+                            <span class="${dClass}">${dData.pnl>0?'+':''}${dData.pnl.toFixed(2)}</span>
+                        </div>
+                        <div class="tree-children">`;
+                    
+                    Object.keys(dData.scripts).sort().forEach(script => {
+                        let sPnL = dData.scripts[script];
+                        if(sPnL !== 0) {
+                            let sClass = sPnL > 0 ? 'pnl-positive' : 'pnl-negative';
+                            treeHtml += `<div class="tree-leaf">
+                                <span>${script}</span>
+                                <span class="${sClass}">${sPnL>0?'+':''}${sPnL.toFixed(2)}</span>
+                            </div>`;
+                        }
+                    });
+                    treeHtml += `</div></div>`;
+                });
+                treeHtml += `</div></div>`;
+            });
+            treeHtml += `</div></div>`;
+        });
+        
+        if(treeHtml === '') treeHtml = `<div style="padding: 15px; color: #64748b; text-align: center;">No realized P&L to display.</div>`;
+        document.getElementById('hierarchical-pnl-body').innerHTML = treeHtml;
+
+        document.getElementById('equity-investment').innerText = totalEquity.toFixed(2);
+        document.getElementById('mf-investment').innerText = totalMF.toFixed(2);
+        document.getElementById('cash-balance').innerText = totalCash.toFixed(2);
+        let pnlEl = document.getElementById('realized-pnl');
+        pnlEl.innerText = (overallPnL > 0 ? '+' : '') + overallPnL.toFixed(2);
+        pnlEl.className = overallPnL >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+        renderScriptDash();
+
+        // --- LEDGER FILTER ENGINE ---
+        ['date', 'broker', 'assetClass', 'txType', 'symbol', 'remark', 'qty', 'price', 'total'].forEach(col => {
+            const el = document.getElementById(`sort-${col}`);
+            if(el) el.innerText = (sortCol === col) ? (sortDesc ? ' ↓' : ' ↑') : '';
+        });
+
+        const searchText = document.getElementById('ledger-search') ? document.getElementById('ledger-search').value.toLowerCase().trim() : '';
+        const fColDate = document.getElementById('flt-col-date').value.toLowerCase().trim();
+        const fColBroker = document.getElementById('flt-col-broker').value.toLowerCase().trim();
+        const fColAsset = document.getElementById('flt-col-asset').value.toLowerCase().trim();
+        const fColType = document.getElementById('flt-col-type').value.toLowerCase().trim();
+        const fColSymbol = document.getElementById('flt-col-symbol').value.toLowerCase().trim();
+        const fColRemark = document.getElementById('flt-col-remark').value.toLowerCase().trim();
+
+        let dynamicTxs = [...currentTxs].filter(tx => {
+            let match = true;
+            if(fColDate && !(tx.date || '').toLowerCase().includes(fColDate)) match = false;
+            if(fColBroker && !(tx.broker || '').toLowerCase().includes(fColBroker)) match = false;
+            if(fColAsset && !(tx.assetClass || '').toLowerCase().includes(fColAsset)) match = false;
+            if(fColType && !(tx.txType || '').toLowerCase().includes(fColType)) match = false;
+            if(fColSymbol && !(tx.symbol || '').toLowerCase().includes(fColSymbol)) match = false;
+            if(fColRemark && !(tx.remark || '').toLowerCase().includes(fColRemark)) match = false;
+            
+            if(searchText) {
+                const searchMatch = 
+                    (tx.symbol || '').toLowerCase().includes(searchText) || 
+                    (tx.broker || '').toLowerCase().includes(searchText) || 
+                    (tx.txType || '').toLowerCase().includes(searchText) ||
+                    (tx.remark || '').toLowerCase().includes(searchText);
+                if(!searchMatch) match = false;
+            }
+            return match;
+        });
+
+        const totalDisplayEl = document.getElementById('flt-col-total-display');
+        if (fColType || fColSymbol || fColRemark) {
+            let sumTotal = dynamicTxs.reduce((sum, tx) => sum + tx.total, 0);
+            totalDisplayEl.innerText = sumTotal.toFixed(2);
+            totalDisplayEl.style.display = 'block';
+        } else {
+            totalDisplayEl.style.display = 'none';
+        }
+
+        dynamicTxs.sort((a, b) => {
+            let valA = a[sortCol]; let valB = b[sortCol];
+            if (sortCol === 'date') { valA = new Date(valA).getTime(); valB = new Date(valB).getTime(); }
+            else if (['qty', 'price', 'total'].includes(sortCol)) { valA = Number(valA); valB = Number(valB); }
+            else { valA = String(valA || '').toLowerCase(); valB = String(valB || '').toLowerCase(); }
+            if (valA < valB) return sortDesc ? 1 : -1;
+            if (valA > valB) return sortDesc ? -1 : 1;
+            return 0;
+        });
+
+        const totalPages = Math.ceil(dynamicTxs.length / pageSize) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        const startIdx = (currentPage - 1) * pageSize;
+        const pageTxs = dynamicTxs.slice(startIdx, startIdx + pageSize);
+
+        pageTxs.forEach(tx => {
+            let badgeClass = tx.txType.toLowerCase().replace(' ', '-');
+            ledgerBody.innerHTML += `<tr>
+                <td>${tx.date}</td>
+                <td>${tx.broker}</td>
+                <td>${tx.assetClass}</td>
+                <td><span class="badge ${badgeClass}">${tx.txType}</span></td>
+                <td><strong>${tx.symbol}</strong></td>
+                <td>${tx.remark || '-'}</td>
+                <td>${tx.qty}</td>
+                <td>${tx.price.toFixed(2)}</td>
+                <td><strong>${tx.total.toFixed(2)}</strong></td>
+                <td><button class="btn-edit-tx" onclick="editTx('${tx.id}')">Edit</button><button class="btn-delete" onclick="deleteTx('${tx.id}')">Del</button></td>
+            </tr>`;
+        });
+        
+        if (pageTxs.length === 0) {
+            ledgerBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 20px; color: #64748b;">No transactions found matching your search.</td></tr>`;
+        }
+        
+        document.getElementById('page-indicator').innerText = `Page ${currentPage} of ${totalPages}`;
+        document.getElementById('btn-prev').disabled = currentPage === 1;
+        document.getElementById('btn-next').disabled = currentPage === totalPages;
+    }
+</script>
+</body>
+</html>
